@@ -1,4 +1,4 @@
-## Source codes will be added into this repository soon.
+## Source codes will be added into this repository soon in the next week or so.
 
 # Level Hashing
 
