@@ -120,7 +120,10 @@ void level_resize(level_hash *level)
                 uint64_t s_idx = S_IDX(S_HASH(level, key), level->addr_capacity);
 
                 uint8_t insertSuccess = 0;
-                for(j = 0; j < ASSOC_NUM; j ++){        // The rehashed item is inserted into the less-loaded bucuket between the two hash locations in the new level
+                for(j = 0; j < ASSOC_NUM; j ++){                            
+                    /*  The rehashed item is inserted into the less-loaded bucket between 
+                        the two hash locations in the new level
+                    */
                     if (newBuckets[f_idx].token[j] == 0)
                     {
                         memcpy(newBuckets[f_idx].slot[j].key, key, KEY_LEN);
@@ -144,6 +147,8 @@ void level_resize(level_hash *level)
                     printf("The resizing fails: 3\n");
                     exit(1);                    
                 }
+				
+				level->buckets[1][old_idx].token[i] == 0;
             }
         }
     }
@@ -339,23 +344,26 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
     int empty_location;
 
     for(i = 0; i < 2; i ++){
-        for(j = 0; j < ASSOC_NUM; j ++){        // The new item is inserted into the less-loaded bucuket between the two hash locations in each level           
-                if (level->buckets[i][f_idx].token[j] == 0)
-                {
-                    memcpy(level->buckets[i][f_idx].slot[j].key, key, KEY_LEN);
-                    memcpy(level->buckets[i][f_idx].slot[j].value, value, VALUE_LEN);
-                    level->buckets[i][f_idx].token[j] = 1;
-                    level->level_item_num[i] ++;
-                    return 0;
-                }
-                if (level->buckets[i][s_idx].token[j] == 0) 
-                {
-                    memcpy(level->buckets[i][s_idx].slot[j].key, key, KEY_LEN);
-                    memcpy(level->buckets[i][s_idx].slot[j].value, value, VALUE_LEN);
-                    level->buckets[i][s_idx].token[j] = 1;
-                    level->level_item_num[i] ++;
-                    return 0;
-                }
+        for(j = 0; j < ASSOC_NUM; j ++){        
+            /*  The new item is inserted into the less-loaded bucket between 
+                the two hash locations in each level           
+            */		
+            if (level->buckets[i][f_idx].token[j] == 0)
+            {
+                memcpy(level->buckets[i][f_idx].slot[j].key, key, KEY_LEN);
+                memcpy(level->buckets[i][f_idx].slot[j].value, value, VALUE_LEN);
+                level->buckets[i][f_idx].token[j] = 1;
+                level->level_item_num[i] ++;
+                return 0;
+            }
+            if (level->buckets[i][s_idx].token[j] == 0) 
+            {
+                memcpy(level->buckets[i][s_idx].slot[j].key, key, KEY_LEN);
+                memcpy(level->buckets[i][s_idx].slot[j].value, value, VALUE_LEN);
+                level->buckets[i][s_idx].token[j] = 1;
+                level->level_item_num[i] ++;
+                return 0;
+            }
         }
 
         empty_location = try_movement(level, f_idx, i);
