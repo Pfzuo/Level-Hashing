@@ -8,11 +8,11 @@ To learn more, please read our OSDI paper:
 
 ## Directory Description
 
-* **level-hashing:** The code for single-threaded level hashing, run in DRAM platform.
-* **concurrent-level-hashing:** The code for concurrent level hashing, run in DRAM platform.
-* **persistent-level-hashing:** The code for persistent level hashing, run in the simulated NVM platform, i.e., [Quartz](https://github.com/HewlettPackard/quartz).
+* **level_hashing:** The code for single-threaded level hashing, run in DRAM platform.
+* **concurrent_level_hashing:** The code for concurrent level hashing, run in DRAM platform.
+* **persistent_level_hashing:** The code for persistent level hashing, run in the simulated NVM platform, i.e., [Quartz](https://github.com/HewlettPackard/quartz).
 
-**Source codes of concurrent level hashing and persistent level hashing will be added into this repository in the next week or so.**
+**The source code of concurrent level hashing will be added into this repository in the next week or so.**
 
 ## Contact
 
