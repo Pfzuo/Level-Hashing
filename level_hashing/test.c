@@ -25,6 +25,7 @@ int main(int argc, char* argv[])
             printf("Resize: space utilization & total entries: %f  %ld\n", (float)(level->level_item_num[0]+level->level_item_num[1])/(level->total_capacity*ASSOC_NUM), level->total_capacity*ASSOC_NUM);
             level_resize(level);
             level_insert(level, key, value);
+            inserted ++;
         }
     }   
     printf("%ld items are inserted\n", inserted);
