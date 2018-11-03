@@ -12,8 +12,6 @@ To learn more, please read our OSDI paper:
 * **concurrent_level_hashing:** The code for concurrent level hashing, run in DRAM platform.
 * **persistent_level_hashing:** The code for persistent level hashing, run in the simulated NVM platform, i.e., [Quartz](https://github.com/HewlettPackard/quartz).
 
-**The source code of concurrent level hashing will be added into this repository in the next week or so.**
-
 ## Contact
 
 If you have any questions about level hashing, please feel free to contact me.   
