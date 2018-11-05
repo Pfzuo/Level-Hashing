@@ -182,8 +182,16 @@ uint8_t* level_query(level_hash *level, uint8_t *key)
             spin_lock(&level->level_locks[i][f_idx].s_lock[j]);
             if (level->buckets[i][f_idx].token[j] == 1&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
             {
-                spin_unlock(&level->level_locks[i][f_idx].s_lock[j]);
+                spin_unlock(&level->level_locks[i][f_idx].s_lock[j]); 
                 return level->buckets[i][f_idx].slot[j].value;
+		// Maybe a simple mistake.
+		// The behaviour of unlock brefore returning the value may cause value to be inconsistent.
+		// For example, suppose we get 2 threads: thread_1 querys and thread_2 updates the same key.
+		// It is possible that thread_1 unlocks in line 185, and then thread_1 is switched off for thread_2, which updates the same key for another value.
+		// That is to say, thread_1 return the value updated by thread 2. 
+		// For spinlock, consider adding a new parameter to function level_query to passing return value, like
+		// 	uint8_t* level_query(level_hash *level, uint8_t *key, uint8_t *value) 
+		// For other locking method, considering use a scope locking method.
             }
             spin_unlock(&level->level_locks[i][f_idx].s_lock[j]);
         }
