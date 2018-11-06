@@ -60,7 +60,7 @@ level_hash *level_init(uint64_t level_size);
 
 uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value);          
 
-uint8_t* level_query(level_hash *level, uint8_t *key);
+uint8_t level_query(level_hash *level, uint8_t *key, uint8_t *value);
 
 uint8_t level_delete(level_hash *level, uint8_t*key);
 

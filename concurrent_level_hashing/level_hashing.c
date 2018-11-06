@@ -169,7 +169,7 @@ void level_resize(level_hash *level)
 Function: level_query() 
         Lookup a key-value item in level hash table;
 */
-uint8_t* level_query(level_hash *level, uint8_t *key)
+uint8_t level_query(level_hash *level, uint8_t *key, uint8_t *value)
 {
     uint64_t f_hash = F_HASH(level, key);
     uint64_t s_hash = S_HASH(level, key);
@@ -182,17 +182,19 @@ uint8_t* level_query(level_hash *level, uint8_t *key)
             spin_lock(&level->level_locks[i][f_idx].s_lock[j]);
             if (level->buckets[i][f_idx].token[j] == 1&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
             {
+                memcpy(value, level->buckets[i][f_idx].slot[j].value, VALUE_LEN);
                 spin_unlock(&level->level_locks[i][f_idx].s_lock[j]);
-                return level->buckets[i][f_idx].slot[j].value;
+                return 0;
             }
             spin_unlock(&level->level_locks[i][f_idx].s_lock[j]);
         }
         for(j = 0; j < ASSOC_NUM; j ++){
             spin_lock(&level->level_locks[i][s_idx].s_lock[j]);
             if (level->buckets[i][s_idx].token[j] == 1&&strcmp(level->buckets[i][s_idx].slot[j].key, key) == 0)
-            {
+            {    
+                memcpy(value, level->buckets[i][s_idx].slot[j].value, VALUE_LEN);
                 spin_unlock(&level->level_locks[i][s_idx].s_lock[j]);
-                return level->buckets[i][s_idx].slot[j].value;
+                return 0;
             }
             spin_unlock(&level->level_locks[i][s_idx].s_lock[j]);
         }
@@ -200,7 +202,7 @@ uint8_t* level_query(level_hash *level, uint8_t *key)
         s_idx = S_IDX(s_hash, level->addr_capacity / 2);
     }
 
-    return NULL;
+    return 1;
 }
 
 
@@ -481,7 +483,7 @@ void level_destroy(level_hash *level)
 void ycsb_thread_run(void* arg){
     sub_thread* subthread = arg;
     uint8_t key[KEY_LEN];
-    uint8_t value[VALUE_LEN];
+    uint8_t value[VALUE_LEN]; 
     int i = 0;
     printf("Thread %d is opened\n", subthread->id);
     for(; i < READ_WRITE_NUM/subthread->level->thread_num; i++){
@@ -490,7 +492,9 @@ void ycsb_thread_run(void* arg){
                 subthread->inserted ++;
             }
         }else{
-            level_query(subthread->level,subthread->run_queue[i].key);
+            if(!level_query(subthread->level, subthread->run_queue[i].key, value))
+                // Get value
+                ;
         }
     }
     pthread_exit(NULL);
