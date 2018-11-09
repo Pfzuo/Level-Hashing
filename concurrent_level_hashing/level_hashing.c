@@ -336,17 +336,6 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
             spin_unlock(&level->level_locks[i][f_idx].s_lock[empty_location]);
             return 0;
         }
-        spin_unlock(&level->level_locks[i][f_idx].s_lock[empty_location]);
-
-        empty_location = try_movement(level, s_idx, i);
-        if(empty_location != -1){
-            memcpy(level->buckets[i][s_idx].slot[empty_location].key, key, KEY_LEN);
-            memcpy(level->buckets[i][s_idx].slot[empty_location].value, value, VALUE_LEN);
-            level->buckets[i][s_idx].token[empty_location] = 1;
-            spin_unlock(&level->level_locks[i][s_idx].s_lock[empty_location]);
-            return 0;
-        }
-        spin_unlock(&level->level_locks[i][s_idx].s_lock[empty_location]);
 
         f_idx = F_IDX(f_hash, level->addr_capacity / 2);
         s_idx = S_IDX(s_hash, level->addr_capacity / 2);
@@ -361,7 +350,6 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
             spin_unlock(&level->level_locks[1][f_idx].s_lock[empty_location]);
             return 0;
         }
-        spin_unlock(&level->level_locks[1][f_idx].s_lock[empty_location]);
 
         empty_location = b2t_movement(level, s_idx);
         if(empty_location != -1){
@@ -371,7 +359,6 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
             spin_unlock(&level->level_locks[1][s_idx].s_lock[empty_location]);
             return 0;
         }
-        spin_unlock(&level->level_locks[1][s_idx].s_lock[empty_location]);
     }
 
     return 1;
