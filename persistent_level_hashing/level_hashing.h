@@ -55,5 +55,3 @@ uint8_t try_movement(level_hash *level, uint64_t idx, uint64_t level_num, uint8_
 int b2t_movement(level_hash *level, uint64_t idx);
 
 void level_destroy(level_hash *level);
-
-uint8_t old_level_insert(level_hash *level, uint8_t *key, uint8_t *value);
