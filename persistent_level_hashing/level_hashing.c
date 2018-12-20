@@ -67,6 +67,7 @@ level_hash *level_init(uint64_t level_size)
     generate_seeds(level);
     level->buckets[0] = pmalloc(pow(2, level_size)*sizeof(level_bucket));
     level->buckets[1] = pmalloc(pow(2, level_size - 1)*sizeof(level_bucket));
+    level->interim_level_buckets = NULL;
     level->level_item_num[0] = 0;
     level->level_item_num[1] = 0;
     level->level_resize = 0;
@@ -79,10 +80,14 @@ level_hash *level_init(uint64_t level_size)
 
     level->log = log_create(1024);
 
+    uint64_t *ptr = (uint64_t *)&level;
+    for(; ptr < (uint64_t *)&level + sizeof(level_hash); ptr = ptr + 64)
+        pflush((uint64_t *)&ptr);
+
     printf("Level hashing: ASSOC_NUM %d, KEY_LEN %d, VALUE_LEN %d \n", ASSOC_NUM, KEY_LEN, VALUE_LEN);
-    printf("The number of top-level buckets: %d\n", level->addr_capacity);
-    printf("The number of all buckets: %d\n", level->total_capacity);
-    printf("The number of all entries: %d\n", level->total_capacity*ASSOC_NUM);
+    printf("The number of top-level buckets: %ld\n", level->addr_capacity);
+    printf("The number of all buckets: %ld\n", level->total_capacity);
+    printf("The number of all entries: %ld\n", level->total_capacity*ASSOC_NUM);
     printf("The level hash table initialization succeeds!\n");
     return level;
 }
@@ -102,13 +107,14 @@ void level_resize(level_hash *level)
     }
 
     level->addr_capacity = pow(2, level->level_size + 1);
-    level_bucket *newBuckets = pmalloc(level->addr_capacity*sizeof(level_bucket));
-    if (!newBuckets) {
+    level->interim_level_buckets = pmalloc(level->addr_capacity*sizeof(level_bucket));
+    if (!level->interim_level_buckets) {
         printf("The resizing fails: 2\n");
         exit(1);
     }
+    pflush((uint64_t *)&level->interim_level_buckets);
+
     uint64_t new_level_item_num = 0;
-    
     uint64_t old_idx;
     for (old_idx = 0; old_idx < pow(2, level->level_size - 1); old_idx ++) {
         uint64_t i, j;
@@ -126,31 +132,31 @@ void level_resize(level_hash *level)
                     /*  The rehashed item is inserted into the less-loaded bucket between 
                         the two hash locations in the new level
                     */
-                    if (newBuckets[f_idx].token[j] == 0)
+                    if (level->interim_level_buckets[f_idx].token[j] == 0)
                     {
-                        memcpy(newBuckets[f_idx].slot[j].key, key, KEY_LEN);
-                        memcpy(newBuckets[f_idx].slot[j].value, value, VALUE_LEN);
-                        pflush((uint64_t *)&newBuckets[f_idx].slot[j].key);
-                        pflush((uint64_t *)&newBuckets[f_idx].slot[j].value);
+                        memcpy(level->interim_level_buckets[f_idx].slot[j].key, key, KEY_LEN);
+                        memcpy(level->interim_level_buckets[f_idx].slot[j].value, value, VALUE_LEN);
+                        pflush((uint64_t *)&level->interim_level_buckets[f_idx].slot[j].key);
+                        pflush((uint64_t *)&level->interim_level_buckets[f_idx].slot[j].value);
                         asm_mfence();
 
-                        newBuckets[f_idx].token[j] = 1;
-                        pflush((uint64_t *)&newBuckets[f_idx].token[j]);
+                        level->interim_level_buckets[f_idx].token[j] = 1;
+                        pflush((uint64_t *)&level->interim_level_buckets[f_idx].token[j]);
                         asm_mfence();
                         insertSuccess = 1;
                         new_level_item_num ++;
                         break;
                     }
-                    if (newBuckets[s_idx].token[j] == 0)
+                    if (level->interim_level_buckets[s_idx].token[j] == 0)
                     {
-                        memcpy(newBuckets[s_idx].slot[j].key, key, KEY_LEN);
-                        memcpy(newBuckets[s_idx].slot[j].value, value, VALUE_LEN);
-                        pflush((uint64_t *)&newBuckets[s_idx].slot[j].key);
-                        pflush((uint64_t *)&newBuckets[s_idx].slot[j].value);
+                        memcpy(level->interim_level_buckets[s_idx].slot[j].key, key, KEY_LEN);
+                        memcpy(level->interim_level_buckets[s_idx].slot[j].value, value, VALUE_LEN);
+                        pflush((uint64_t *)&level->interim_level_buckets[s_idx].slot[j].key);
+                        pflush((uint64_t *)&level->interim_level_buckets[s_idx].slot[j].value);
                         asm_mfence();
 
-                        newBuckets[s_idx].token[j] = 1;
-                        pflush((uint64_t *)&newBuckets[s_idx].token[j]);
+                        level->interim_level_buckets[s_idx].token[j] = 1;
+                        pflush((uint64_t *)&level->interim_level_buckets[s_idx].token[j]);
                         asm_mfence();
                         insertSuccess = 1;
                         new_level_item_num ++;
@@ -175,12 +181,16 @@ void level_resize(level_hash *level)
 
     free(level->buckets[1]);
     level->buckets[1] = level->buckets[0];
-    level->buckets[0] = newBuckets;
-    newBuckets = NULL;
+    level->buckets[0] = level->interim_level_buckets;
+    level->interim_level_buckets = NULL;
     
     level->level_item_num[1] = level->level_item_num[0];
     level->level_item_num[0] = new_level_item_num;
     level->level_resize ++;
+
+    uint64_t *ptr = (uint64_t *)&level;
+    for(; ptr < (uint64_t *)&level + sizeof(level_hash); ptr = ptr + 64)
+        pflush((uint64_t *)&ptr);
 }
 
 /*
@@ -437,42 +447,24 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
                 return 0;
             }
         }
-
-        empty_location = try_movement(level, f_idx, i);
-        if(empty_location != -1){
-            memcpy(level->buckets[i][f_idx].slot[empty_location].key, key, KEY_LEN);
-            memcpy(level->buckets[i][f_idx].slot[empty_location].value, value, VALUE_LEN);
-            pflush((uint64_t *)&level->buckets[i][f_idx].slot[empty_location].key);
-            pflush((uint64_t *)&level->buckets[i][f_idx].slot[empty_location].value);
-            asm_mfence();
-
-            level->buckets[i][f_idx].token[empty_location] = 1;
-            pflush((uint64_t *)&level->buckets[i][f_idx].token[empty_location]);
-            level->level_item_num[i] ++;
-            asm_mfence();
-            return 0;
-
-        }
-        
-        if(i == 1){
-            empty_location = try_movement(level, s_idx, i);
-            if(empty_location != -1){
-                memcpy(level->buckets[i][s_idx].slot[empty_location].key, key, KEY_LEN);
-                memcpy(level->buckets[i][s_idx].slot[empty_location].value, value, VALUE_LEN);
-                pflush((uint64_t *)&level->buckets[i][s_idx].slot[empty_location].key);
-                pflush((uint64_t *)&level->buckets[i][s_idx].slot[empty_location].value);
-                asm_mfence();
-
-                level->buckets[i][s_idx].token[empty_location] = 1;
-                pflush((uint64_t *)&level->buckets[i][s_idx].token[empty_location]);
-                level->level_item_num[i] ++;
-                asm_mfence();
-                return 0;
-            }
-        }
         
         f_idx = F_IDX(f_hash, level->addr_capacity / 2);
         s_idx = S_IDX(s_hash, level->addr_capacity / 2);
+    }
+
+    f_idx = F_IDX(f_hash, level->addr_capacity);
+    s_idx = S_IDX(s_hash, level->addr_capacity);
+    
+    for(i = 0; i < 2; i++){
+        if(!try_movement(level, f_idx, i, key, value)){
+            return 0;
+        }
+        if(!try_movement(level, s_idx, i, key, value)){
+            return 0;
+        }
+
+        f_idx = F_IDX(f_hash, level->addr_capacity/2);
+        s_idx = S_IDX(s_hash, level->addr_capacity/2);        
     }
 
     if(level->level_resize > 0){
@@ -514,15 +506,15 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
 Function: try_movement() 
         Try to move an item from the current bucket to its same-level alternative bucket;
 */
-int try_movement(level_hash *level, uint64_t idx, uint64_t level_num)
+uint8_t try_movement(level_hash *level, uint64_t idx, uint64_t level_num, uint8_t *key, uint8_t *value)
 {
     uint64_t i, j, jdx;
 
     for(i = 0; i < ASSOC_NUM; i ++){
-        uint8_t *key = level->buckets[level_num][idx].slot[i].key;
-        uint8_t *value = level->buckets[level_num][idx].slot[i].value;
-        uint64_t f_hash = F_HASH(level, key);
-        uint64_t s_hash = S_HASH(level, key);
+        uint8_t *m_key = level->buckets[level_num][idx].slot[i].key;
+        uint8_t *m_value = level->buckets[level_num][idx].slot[i].value;
+        uint64_t f_hash = F_HASH(level, m_key);
+        uint64_t s_hash = S_HASH(level, m_key);
         uint64_t f_idx = F_IDX(f_hash, level->addr_capacity/(1+level_num));
         uint64_t s_idx = S_IDX(s_hash, level->addr_capacity/(1+level_num));
         
@@ -534,8 +526,8 @@ int try_movement(level_hash *level, uint64_t idx, uint64_t level_num)
         for(j = 0; j < ASSOC_NUM; j ++){
             if (level->buckets[level_num][jdx].token[j] == 0)
             {
-                memcpy(level->buckets[level_num][jdx].slot[j].key, key, KEY_LEN);
-                memcpy(level->buckets[level_num][jdx].slot[j].value, value, VALUE_LEN);
+                memcpy(level->buckets[level_num][jdx].slot[j].key, m_key, KEY_LEN);
+                memcpy(level->buckets[level_num][jdx].slot[j].value, m_value, VALUE_LEN);
                 pflush((uint64_t *)&level->buckets[level_num][jdx].slot[j].key);
                 pflush((uint64_t *)&level->buckets[level_num][jdx].slot[j].value);
                 asm_mfence();
@@ -547,12 +539,25 @@ int try_movement(level_hash *level, uint64_t idx, uint64_t level_num)
                 level->buckets[level_num][idx].token[i] = 0;
                 pflush((uint64_t *)&level->buckets[level_num][idx].token[j]);
                 asm_mfence();
-                return i;
+                // The movement is finished and then the new item is inserted
+
+                memcpy(level->buckets[level_num][idx].slot[i].key, key, KEY_LEN);
+                memcpy(level->buckets[level_num][idx].slot[i].value, value, VALUE_LEN);
+                pflush((uint64_t *)&level->buckets[level_num][idx].slot[i].key);
+                pflush((uint64_t *)&level->buckets[level_num][idx].slot[i].value);
+                asm_mfence();
+
+                level->buckets[level_num][idx].token[i] = 1;
+                pflush((uint64_t *)&level->buckets[level_num][idx].token[i]);
+                level->level_item_num[level_num] ++;
+                asm_mfence();
+                
+                return 0;
             }
         }       
     }
     
-    return -1;
+    return 1;
 }
 
 /*

@@ -24,6 +24,7 @@ typedef struct level_bucket               // A bucket
 
 typedef struct level_hash {               // A Level hash table
     level_bucket *buckets[2];             // The top level and bottom level in the Level hash table
+    level_bucket *interim_level_buckets;  // Used during resizing;
     uint64_t level_item_num[2];           // The numbers of items stored in the top and bottom levels respectively
     uint64_t addr_capacity;               // The number of buckets in the top level
     uint64_t total_capacity;              // The number of all buckets in the Level hash table    
@@ -49,8 +50,10 @@ uint8_t level_update(level_hash *level, uint8_t *key, uint8_t *new_value);
 
 void level_resize(level_hash *level);
 
-int try_movement(level_hash *level, uint64_t idx, uint64_t level_num);
+uint8_t try_movement(level_hash *level, uint64_t idx, uint64_t level_num, uint8_t *key, uint8_t *value);
 
 int b2t_movement(level_hash *level, uint64_t idx);
 
 void level_destroy(level_hash *level);
+
+uint8_t old_level_insert(level_hash *level, uint8_t *key, uint8_t *value);
