@@ -79,9 +79,9 @@ level_hash *level_init(uint64_t level_size)
     }
 
     printf("Level hashing: ASSOC_NUM %d, KEY_LEN %d, VALUE_LEN %d \n", ASSOC_NUM, KEY_LEN, VALUE_LEN);
-    printf("The number of top-level buckets: %d\n", level->addr_capacity);
-    printf("The number of all buckets: %d\n", level->total_capacity);
-    printf("The number of all entries: %d\n", level->total_capacity*ASSOC_NUM);
+    printf("The number of top-level buckets: %ld\n", level->addr_capacity);
+    printf("The number of all buckets: %ld\n", level->total_capacity);
+    printf("The number of all entries: %ld\n", level->total_capacity*ASSOC_NUM);
     printf("The level hash table initialization succeeds!\n");
     return level;
 }
@@ -406,7 +406,6 @@ uint8_t try_movement(level_hash *level, uint64_t idx, uint64_t level_num, uint8_
                 memcpy(level->buckets[level_num][idx].slot[i].key, key, KEY_LEN);
                 memcpy(level->buckets[level_num][idx].slot[i].value, value, VALUE_LEN);
                 level->buckets[level_num][idx].token[i] = 1;
-                level->level_item_num[level_num] ++;
                 spin_unlock(&level->level_locks[level_num][idx].s_lock[i]);  
 
                 return 0;
