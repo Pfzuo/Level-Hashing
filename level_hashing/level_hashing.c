@@ -155,7 +155,7 @@ void level_resize(level_hash *level)
                     exit(1);                    
                 }
                 
-                level->buckets[1][old_idx].token[i] == 0;
+                level->buckets[1][old_idx].token[i] = 0;
             }
         }
     }
