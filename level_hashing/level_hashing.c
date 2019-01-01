@@ -76,7 +76,8 @@ level_hash *level_init(uint64_t level_size)
     level->buckets[1] = alignedmalloc(pow(2, level_size - 1)*sizeof(level_bucket));
     level->level_item_num[0] = 0;
     level->level_item_num[1] = 0;
-    level->level_resize = 0;
+    level->level_expand_time = 0;
+    level->resize_state = 0;
     
     if (!level->buckets[0] || !level->buckets[1])
     {
@@ -93,23 +94,23 @@ level_hash *level_init(uint64_t level_size)
 }
 
 /*
-Function: level_resize()
+Function: level_expand()
         Expand a level hash table in place;
-        Put a new level on the top of the old hash table and only rehash the
+        Put a new level on top of the old hash table and only rehash the
         items in the bottom level of the old hash table;
 */
-void level_resize(level_hash *level) 
+void level_expand(level_hash *level) 
 {
     if (!level)
     {
-        printf("The resizing fails: 1\n");
+        printf("The expanding fails: 1\n");
         exit(1);
     }
-
+    level->resize_state = 1;
     level->addr_capacity = pow(2, level->level_size + 1);
     level_bucket *newBuckets = alignedmalloc(level->addr_capacity*sizeof(level_bucket));
     if (!newBuckets) {
-        printf("The resizing fails: 2\n");
+        printf("The expanding fails: 2\n");
         exit(1);
     }
     uint64_t new_level_item_num = 0;
@@ -151,7 +152,7 @@ void level_resize(level_hash *level)
                     }
                 }
                 if(!insertSuccess){
-                    printf("The resizing fails: 3\n");
+                    printf("The expanding fails: 3\n");
                     exit(1);                    
                 }
                 
@@ -170,7 +171,62 @@ void level_resize(level_hash *level)
     
     level->level_item_num[1] = level->level_item_num[0];
     level->level_item_num[0] = new_level_item_num;
-    level->level_resize ++;
+    level->level_expand_time ++;
+    level->resize_state = 0;
+}
+
+/*
+Function: level_shrink()
+        Shrink a level hash table in place;
+        Put a new level at the bottom of the old hash table and only rehash the
+        items in the top level of the old hash table;
+*/
+void level_shrink(level_hash *level)
+{
+    if (!level)
+    {
+        printf("The shrinking fails: 1\n");
+        exit(1);
+    }
+
+    // The shrinking is performed only when the hash table has very few items.
+    if(level->level_item_num[0] + level->level_item_num[1] > level->total_capacity*ASSOC_NUM*0.4){
+        printf("The shrinking fails: 2\n");
+        exit(1);
+    }
+
+    level->resize_state = 2;
+    level->level_size --;
+    level_bucket *newBuckets = alignedmalloc(pow(2, level->level_size - 1)*sizeof(level_bucket));
+    level_bucket *interimBuckets = level->buckets[0];
+    level->buckets[0] = level->buckets[1];
+    level->buckets[1] = newBuckets;
+    newBuckets = NULL;
+
+    level->level_item_num[0] = level->level_item_num[1];
+    level->level_item_num[1] = 0;
+
+    level->addr_capacity = pow(2, level->level_size);
+    level->total_capacity = pow(2, level->level_size) + pow(2, level->level_size - 1);
+
+    uint64_t old_idx, i;
+    for (old_idx = 0; old_idx < pow(2, level->level_size+1); old_idx ++) {
+        for(i = 0; i < ASSOC_NUM; i ++){
+            if (interimBuckets[old_idx].token[i] == 1)
+            {
+                if(level_insert(level, interimBuckets[old_idx].slot[i].key, interimBuckets[old_idx].slot[i].value)){
+                        printf("The shrinking fails: 3\n");
+                        exit(1);   
+                }
+
+            interimBuckets[old_idx].token[i] = 0;
+            }
+        }
+    } 
+
+    free(interimBuckets);
+    level->level_expand_time = 0;
+    level->resize_state = 0;
 }
 
 /*
@@ -392,7 +448,7 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
         s_idx = S_IDX(s_hash, level->addr_capacity/2);        
     }
     
-    if(level->level_resize > 0){
+    if(level->level_expand_time > 0){
         empty_location = b2t_movement(level, f_idx);
         if(empty_location != -1){
             memcpy(level->buckets[1][f_idx].slot[empty_location].key, key, KEY_LEN);

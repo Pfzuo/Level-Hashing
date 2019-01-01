@@ -22,8 +22,10 @@ int main(int argc, char* argv[])
             inserted ++;
         }else
         {
-            printf("Resize: space utilization & total entries: %f  %ld\n", (float)(level->level_item_num[0]+level->level_item_num[1])/(level->total_capacity*ASSOC_NUM), level->total_capacity*ASSOC_NUM);
-            level_resize(level);
+            printf("Expanding: space utilization & total entries: %f  %ld\n", \
+                (float)(level->level_item_num[0]+level->level_item_num[1])/(level->total_capacity*ASSOC_NUM), \
+                level->total_capacity*ASSOC_NUM);
+            level_expand(level);
             level_insert(level, key, value);
             inserted ++;
         }
