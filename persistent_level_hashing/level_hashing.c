@@ -410,7 +410,7 @@ uint8_t level_update(level_hash *level, uint8_t *key, uint8_t *new_value)
             {
                 for(k = 0; k < ASSOC_NUM; k++){
                     if (level->buckets[i][f_idx].token[k] == 0){        // Log-free update
-                        memcpy(level->buckets[i][f_idx].slot[k].key, key, VALUE_LEN);
+                        memcpy(level->buckets[i][f_idx].slot[k].key, key, KEY_LEN);
                         memcpy(level->buckets[i][f_idx].slot[k].value, new_value, VALUE_LEN);
                         pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].key);
                         pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].value);
@@ -437,7 +437,7 @@ uint8_t level_update(level_hash *level, uint8_t *key, uint8_t *new_value)
             {
                 for(k = 0; k < ASSOC_NUM; k++){
                     if (level->buckets[i][s_idx].token[k] == 0){        // Log-free update
-                        memcpy(level->buckets[i][s_idx].slot[k].key, key, VALUE_LEN);
+                        memcpy(level->buckets[i][s_idx].slot[k].key, key, KEY_LEN);
                         memcpy(level->buckets[i][s_idx].slot[k].value, new_value, VALUE_LEN);
                         pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].key);
                         pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].value);
