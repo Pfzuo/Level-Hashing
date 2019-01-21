@@ -16,10 +16,10 @@ typedef struct entry{                     // A slot storing a key-value item
     uint8_t value[VALUE_LEN];
 } entry;
 
-typedef struct level_bucket               // A bucket, put the tokens behind the items to ensure the token area is within the last 8 bytes of the cache line 
+typedef struct level_bucket               // A bucket
 {
-    entry slot[ASSOC_NUM];
     uint8_t token[ASSOC_NUM];             // A token indicates whether its corresponding slot is empty, which can also be implemented using 1 bit
+    entry slot[ASSOC_NUM];
 } level_bucket;
 
 typedef struct level_hash {               // A Level hash table
