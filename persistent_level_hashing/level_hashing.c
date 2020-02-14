@@ -598,7 +598,7 @@ uint8_t try_movement(level_hash *level, uint64_t idx, uint64_t level_num, uint8_
             {
                 memcpy(level->buckets[level_num][jdx].slot[j].key, m_key, KEY_LEN);
                 memcpy(level->buckets[level_num][jdx].slot[j].value, m_value, VALUE_LEN);
-                level->buckets[1][s_idx].token[empty_location] = 1;
+                level->buckets[level_num][jdx].token[j] = 1;
 
                 pflush((uint64_t *)&level->buckets[level_num][jdx].slot[j].key);
                 pflush((uint64_t *)&level->buckets[level_num][jdx].slot[j].value);
