@@ -82,7 +82,7 @@ level_hash *level_init(uint64_t level_size)
     level->log = log_create(1024);
 
     uint64_t *ptr = (uint64_t *)&level;
-    for(; ptr < (uint64_t *)&level + sizeof(level_hash); ptr = ptr + 64)
+    for(; ptr < (uint64_t *)&level + sizeof(level_hash); ptr += 8)
         pflush((uint64_t *)&ptr);
 
     printf("Level hashing: ASSOC_NUM %d, KEY_LEN %d, VALUE_LEN %d \n", ASSOC_NUM, KEY_LEN, VALUE_LEN);
@@ -191,7 +191,7 @@ void level_expand(level_hash *level)
     level->level_expand_time ++;
 
     uint64_t *ptr = (uint64_t *)&level;
-    for(; ptr < (uint64_t *)&level + sizeof(level_hash); ptr = ptr + 64)
+    for(; ptr < (uint64_t *)&level + sizeof(level_hash); ptr += 8)
         pflush((uint64_t *)&ptr);
 
     level->resize_state = 0;
@@ -236,7 +236,7 @@ void level_shrink(level_hash *level)
     level->level_expand_time = 0;
 
     uint64_t *ptr = (uint64_t *)&level;
-    for(; ptr < (uint64_t *)&level + sizeof(level_hash); ptr = ptr + 64)
+    for(; ptr < (uint64_t *)&level + sizeof(level_hash); ptr += 8)
         pflush((uint64_t *)&ptr);
 
     uint64_t old_idx, i;
