@@ -49,6 +49,45 @@ void generate_seeds(level_hash *level)
 }
 
 /*
+Function: is_in_one_cache_line
+          determine whether x and y are in the same cache line
+*/
+static inline bool is_in_one_cache_line(void* x, void* y)
+{
+    if((char*)x + 64 <= (char*)y)
+    {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
+}
+
+/*
+Function: level_slot_flush
+          write the j-th slot in the bucket
+*/
+static inline void level_slot_flush(level_bucket* bucket, uint64_t j)
+{
+    // When the key-value item and token are in the same cache line, only one flush is acctually executed.
+    if(is_in_one_cache_line(&bucket->slot[j], &bucket->token))
+    {
+        SET_BIT(bucket->token, j, 1);
+        pflush((uint64_t *)&bucket->slot[j].key);
+        pflush((uint64_t *)&bucket->slot[j].value);
+    }
+    else
+    {
+        pflush((uint64_t *)&bucket->slot[j].key);
+        pflush((uint64_t *)&bucket->slot[j].value);
+        asm_mfence();
+        SET_BIT(bucket->token, j, 1);                   
+    }
+    pflush((uint64_t *)&bucket->token);
+}
+
+/*
 Function: level_init() 
         Initialize a level hash table
 */
@@ -122,7 +161,7 @@ void level_expand(level_hash *level)
     for (old_idx = 0; old_idx < pow(2, level->level_size - 1); old_idx ++) {
         uint64_t i, j;
         for(i = 0; i < ASSOC_NUM; i ++){
-            if (level->buckets[1][old_idx].token[i] == 1)
+            if (GET_BIT(level->buckets[1][old_idx].token, i) != 0)
             {
                 uint8_t *key = level->buckets[1][old_idx].slot[i].key;
                 uint8_t *value = level->buckets[1][old_idx].slot[i].value;
@@ -135,31 +174,27 @@ void level_expand(level_hash *level)
                     /*  The rehashed item is inserted into the less-loaded bucket between 
                         the two hash locations in the new level
                     */
-                    if (level->interim_level_buckets[f_idx].token[j] == 0)
+                    if (GET_BIT(level->interim_level_buckets[f_idx].token, j) == 0)
                     {
                         memcpy(level->interim_level_buckets[f_idx].slot[j].key, key, KEY_LEN);
                         memcpy(level->interim_level_buckets[f_idx].slot[j].value, value, VALUE_LEN);
-                        level->interim_level_buckets[f_idx].token[j] = 1;
-
-                        pflush((uint64_t *)&level->interim_level_buckets[f_idx].slot[j].key);
-                        pflush((uint64_t *)&level->interim_level_buckets[f_idx].slot[j].value);
                         asm_mfence();
-                        pflush((uint64_t *)&level->interim_level_buckets[f_idx].token[j]);
+
+                        level_slot_flush(&level->interim_level_buckets[f_idx], j);
+
                         asm_mfence();
                         insertSuccess = 1;
                         new_level_item_num ++;
                         break;
                     }
-                    if (level->interim_level_buckets[s_idx].token[j] == 0)
+                    if (GET_BIT(level->interim_level_buckets[s_idx].token, j) == 0)
                     {
                         memcpy(level->interim_level_buckets[s_idx].slot[j].key, key, KEY_LEN);
                         memcpy(level->interim_level_buckets[s_idx].slot[j].value, value, VALUE_LEN);
-                        level->interim_level_buckets[s_idx].token[j] = 1;
-                        
-                        pflush((uint64_t *)&level->interim_level_buckets[s_idx].slot[j].key);
-                        pflush((uint64_t *)&level->interim_level_buckets[s_idx].slot[j].value);
                         asm_mfence();
-                        pflush((uint64_t *)&level->interim_level_buckets[s_idx].token[j]);
+                        
+                        level_slot_flush(&level->interim_level_buckets[s_idx], j);
+
                         asm_mfence();
                         insertSuccess = 1;
                         new_level_item_num ++;
@@ -172,8 +207,8 @@ void level_expand(level_hash *level)
                     exit(1);                    
                 }
                 
-                level->buckets[1][old_idx].token[i] = 0;
-                pflush((uint64_t *)&level->buckets[1][old_idx].token[i]);
+                SET_BIT(level->buckets[1][old_idx].token, i, 0);
+                pflush((uint64_t *)&level->buckets[1][old_idx].token);
                 asm_mfence();
             }
         }
@@ -242,15 +277,15 @@ void level_shrink(level_hash *level)
     uint64_t old_idx, i;
     for (old_idx = 0; old_idx < pow(2, level->level_size + 1); old_idx ++) {
         for(i = 0; i < ASSOC_NUM; i ++){
-            if (level->interim_level_buckets[old_idx].token[i] == 1)
+            if (GET_BIT(level->interim_level_buckets[old_idx].token, i) != 0)
             {
                 if(level_insert(level, level->interim_level_buckets[old_idx].slot[i].key, level->interim_level_buckets[old_idx].slot[i].value)){
                         printf("The shrinking fails: 3\n");
                         exit(1);   
                 }
 
-            level->interim_level_buckets[old_idx].token[i] = 0;
-            pflush((uint64_t *)&level->interim_level_buckets[old_idx].token[i]);
+            SET_BIT(level->interim_level_buckets[old_idx].token, i, 0);
+            pflush((uint64_t *)&level->interim_level_buckets[old_idx].token);
             }
         }
     } 
@@ -277,13 +312,13 @@ uint8_t* level_dynamic_query(level_hash *level, uint8_t *key)
 
         for(i = 0; i < 2; i ++){
             for(j = 0; j < ASSOC_NUM; j ++){
-                if (level->buckets[i][f_idx].token[j] == 1&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
+                if (GET_BIT(level->buckets[i][f_idx].token, j) != 0&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
                 {
                     return level->buckets[i][f_idx].slot[j].value;
                 }
             }
             for(j = 0; j < ASSOC_NUM; j ++){
-                if (level->buckets[i][s_idx].token[j] == 1&&strcmp(level->buckets[i][s_idx].slot[j].key, key) == 0)
+                if (GET_BIT(level->buckets[i][s_idx].token, j) != 0&&strcmp(level->buckets[i][s_idx].slot[j].key, key) == 0)
                 {
                     return level->buckets[i][s_idx].slot[j].value;
                 }
@@ -298,13 +333,13 @@ uint8_t* level_dynamic_query(level_hash *level, uint8_t *key)
 
         for(i = 2; i > 0; i --){
             for(j = 0; j < ASSOC_NUM; j ++){
-                if (level->buckets[i-1][f_idx].token[j] == 1&&strcmp(level->buckets[i-1][f_idx].slot[j].key, key) == 0)
+                if (GET_BIT(level->buckets[i-1][f_idx].token, j) != 0&&strcmp(level->buckets[i-1][f_idx].slot[j].key, key) == 0)
                 {
                     return level->buckets[i-1][f_idx].slot[j].value;
                 }
             }
             for(j = 0; j < ASSOC_NUM; j ++){
-                if (level->buckets[i-1][s_idx].token[j] == 1&&strcmp(level->buckets[i-1][s_idx].slot[j].key, key) == 0)
+                if (GET_BIT(level->buckets[i-1][s_idx].token, j) != 0&&strcmp(level->buckets[i-1][s_idx].slot[j].key, key) == 0)
                 {
                     return level->buckets[i-1][s_idx].slot[j].value;
                 }
@@ -331,13 +366,13 @@ uint8_t* level_static_query(level_hash *level, uint8_t *key)
     uint64_t i, j;
     for(i = 0; i < 2; i ++){
         for(j = 0; j < ASSOC_NUM; j ++){
-            if (level->buckets[i][f_idx].token[j] == 1&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
+            if (GET_BIT(level->buckets[i][f_idx].token, j) != 0&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
             {
                 return level->buckets[i][f_idx].slot[j].value;
             }
         }
         for(j = 0; j < ASSOC_NUM; j ++){
-            if (level->buckets[i][s_idx].token[j] == 1&&strcmp(level->buckets[i][s_idx].slot[j].key, key) == 0)
+            if (GET_BIT(level->buckets[i][s_idx].token, j) != 0&&strcmp(level->buckets[i][s_idx].slot[j].key, key) == 0)
             {
                 return level->buckets[i][s_idx].slot[j].value;
             }
@@ -365,20 +400,20 @@ uint8_t level_delete(level_hash *level, uint8_t *key)
     uint64_t i, j;
     for(i = 0; i < 2; i ++){
         for(j = 0; j < ASSOC_NUM; j ++){
-            if (level->buckets[i][f_idx].token[j] == 1&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
+            if (GET_BIT(level->buckets[i][f_idx].token, j) != 0&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
             {
-                level->buckets[i][f_idx].token[j] = 0;
-                pflush((uint64_t *)&level->buckets[i][f_idx].token[j]);
+                SET_BIT(level->buckets[i][f_idx].token, j, 0);
+                pflush((uint64_t *)&level->buckets[i][f_idx].token);
                 level->level_item_num[i] --;
                 asm_mfence();
                 return 0;
             }
         }
         for(j = 0; j < ASSOC_NUM; j ++){
-            if (level->buckets[i][s_idx].token[j] == 1&&strcmp(level->buckets[i][s_idx].slot[j].key, key) == 0)
+            if (GET_BIT(level->buckets[i][s_idx].token, j) != 0&&strcmp(level->buckets[i][s_idx].slot[j].key, key) == 0)
             {
-                level->buckets[i][s_idx].token[j] = 0;
-                pflush((uint64_t *)&level->buckets[i][s_idx].token[j]);
+                SET_BIT(level->buckets[i][s_idx].token, j, 0);
+                pflush((uint64_t *)&level->buckets[i][s_idx].token);
                 level->level_item_num[i] --;
                 asm_mfence();
                 return 0;
@@ -406,20 +441,32 @@ uint8_t level_update(level_hash *level, uint8_t *key, uint8_t *new_value)
     uint64_t i, j, k;
     for(i = 0; i < 2; i ++){
         for(j = 0; j < ASSOC_NUM; j ++){
-            if (level->buckets[i][f_idx].token[j] == 1&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
+            if (GET_BIT(level->buckets[i][f_idx].token, j) != 0&&strcmp(level->buckets[i][f_idx].slot[j].key, key) == 0)
             {
                 for(k = 0; k < ASSOC_NUM; k++){
-                    if (level->buckets[i][f_idx].token[k] == 0){        // Log-free update
+                    if (GET_BIT(level->buckets[i][f_idx].token, k) == 0){        // Log-free update
                         memcpy(level->buckets[i][f_idx].slot[k].key, key, KEY_LEN);
                         memcpy(level->buckets[i][f_idx].slot[k].value, new_value, VALUE_LEN);
-                        
-                        level->buckets[i][f_idx].token[j] = 0;
-                        level->buckets[i][f_idx].token[k] = 1;
-
-                        pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].key);
-                        pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].value);
                         asm_mfence();
-                        pflush((uint64_t *)&level->buckets[i][f_idx].token[j]);
+
+                        if(is_in_one_cache_line(&level->buckets[i][f_idx].slot[k], &level->buckets[i][f_idx].token))
+                        {
+                            SET_BIT(level->buckets[i][f_idx].token, j, 0);
+                            SET_BIT(level->buckets[i][f_idx].token, k, 1);
+                            
+                            pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].key);
+                            pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].value);
+                        }
+                        else
+                        {   
+                            pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].key);
+                            pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].value);
+                            asm_mfence();
+                            SET_BIT(level->buckets[i][f_idx].token, j, 0);
+                            SET_BIT(level->buckets[i][f_idx].token, k, 1);
+                        }
+
+                        pflush((uint64_t *)&level->buckets[i][f_idx].token);
                         asm_mfence();
                         return 0;                        
                     }
@@ -434,20 +481,32 @@ uint8_t level_update(level_hash *level, uint8_t *key, uint8_t *new_value)
             }
         }
         for(j = 0; j < ASSOC_NUM; j ++){
-            if (level->buckets[i][s_idx].token[j] == 1&&strcmp(level->buckets[i][s_idx].slot[j].key, key) == 0)
+            if (GET_BIT(level->buckets[i][s_idx].token, j) != 0&&strcmp(level->buckets[i][s_idx].slot[j].key, key) == 0)
             {
                 for(k = 0; k < ASSOC_NUM; k++){
-                    if (level->buckets[i][s_idx].token[k] == 0){        // Log-free update
+                    if (GET_BIT(level->buckets[i][s_idx].token, k) == 0){        // Log-free update
                         memcpy(level->buckets[i][s_idx].slot[k].key, key, KEY_LEN);
                         memcpy(level->buckets[i][s_idx].slot[k].value, new_value, VALUE_LEN);
-                        
-                        level->buckets[i][s_idx].token[j] = 0;
-                        level->buckets[i][s_idx].token[k] = 1;
-
-                        pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].key);
-                        pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].value);
                         asm_mfence();
-                        pflush((uint64_t *)&level->buckets[i][s_idx].token[j]);
+                        
+                        if(is_in_one_cache_line(&level->buckets[i][s_idx].slot[k], &level->buckets[i][s_idx].token))
+                        {
+                            SET_BIT(level->buckets[i][s_idx].token, j, 0);
+                            SET_BIT(level->buckets[i][s_idx].token, k, 1);
+                            
+                            pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].key);
+                            pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].value);
+                        }
+                        else
+                        {   
+                            pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].key);
+                            pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].value);
+                            asm_mfence();
+                            SET_BIT(level->buckets[i][s_idx].token, j, 0);
+                            SET_BIT(level->buckets[i][s_idx].token, k, 1);
+                        }
+
+                        pflush((uint64_t *)&level->buckets[i][s_idx].token);
                         asm_mfence();
                         return 0;                        
                     }
@@ -487,31 +546,26 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
             /*  The new item is inserted into the less-loaded bucket between 
                 the two hash locations in each level           
             */
-            if (level->buckets[i][f_idx].token[j] == 0)
+            if (GET_BIT(level->buckets[i][f_idx].token, j) == 0)
             {
                 memcpy(level->buckets[i][f_idx].slot[j].key, key, KEY_LEN);
                 memcpy(level->buckets[i][f_idx].slot[j].value, value, VALUE_LEN);
-                level->buckets[i][f_idx].token[j] = 1;
-                
-                // When the key-value item and token are in the same cache line, only one flush is acctually executed.
-                pflush((uint64_t *)&level->buckets[i][f_idx].slot[j].key);
-                pflush((uint64_t *)&level->buckets[i][f_idx].slot[j].value);
                 asm_mfence();
-                pflush((uint64_t *)&level->buckets[i][f_idx].token[j]);
+
+                level_slot_flush(&level->buckets[i][f_idx], j);
+        
                 level->level_item_num[i] ++;
                 asm_mfence();
                 return 0;
             }
-            if (level->buckets[i][s_idx].token[j] == 0) 
+            if (GET_BIT(level->buckets[i][s_idx].token, j) == 0) 
             {
                 memcpy(level->buckets[i][s_idx].slot[j].key, key, KEY_LEN);
                 memcpy(level->buckets[i][s_idx].slot[j].value, value, VALUE_LEN);
-                level->buckets[i][s_idx].token[j] = 1;
-
-                pflush((uint64_t *)&level->buckets[i][s_idx].slot[j].key);
-                pflush((uint64_t *)&level->buckets[i][s_idx].slot[j].value);
                 asm_mfence();
-                pflush((uint64_t *)&level->buckets[i][s_idx].token[j]);
+
+                level_slot_flush(&level->buckets[i][s_idx], j);
+
                 level->level_item_num[i] ++;
                 asm_mfence();
                 return 0;
@@ -541,13 +595,11 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
         empty_location = b2t_movement(level, f_idx);
         if(empty_location != -1){
             memcpy(level->buckets[1][f_idx].slot[empty_location].key, key, KEY_LEN);
-            memcpy(level->buckets[1][f_idx].slot[empty_location].value, value, VALUE_LEN);
-            level->buckets[1][f_idx].token[empty_location] = 1;            
-
-            pflush((uint64_t *)&level->buckets[1][f_idx].slot[empty_location].key);
-            pflush((uint64_t *)&level->buckets[1][f_idx].slot[empty_location].value);
+            memcpy(level->buckets[1][f_idx].slot[empty_location].value, value, VALUE_LEN);            
             asm_mfence();
-            pflush((uint64_t *)&level->buckets[1][f_idx].token[empty_location]);
+            
+            level_slot_flush(&level->buckets[1][f_idx], empty_location);
+
             level->level_item_num[1] ++;
             asm_mfence();
             return 0;
@@ -557,12 +609,10 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
         if(empty_location != -1){
             memcpy(level->buckets[1][s_idx].slot[empty_location].key, key, KEY_LEN);
             memcpy(level->buckets[1][s_idx].slot[empty_location].value, value, VALUE_LEN);
-            level->buckets[1][s_idx].token[empty_location] = 1;
-
-            pflush((uint64_t *)&level->buckets[1][s_idx].slot[empty_location].key);
-            pflush((uint64_t *)&level->buckets[1][s_idx].slot[empty_location].value);
             asm_mfence();
-            pflush((uint64_t *)&level->buckets[1][s_idx].token[empty_location]);
+            
+            level_slot_flush(&level->buckets[1][s_idx], empty_location);
+
             level->level_item_num[1] ++;
             asm_mfence();
             return 0;
@@ -594,31 +644,27 @@ uint8_t try_movement(level_hash *level, uint64_t idx, uint64_t level_num, uint8_
             jdx = f_idx;
 
         for(j = 0; j < ASSOC_NUM; j ++){
-            if (level->buckets[level_num][jdx].token[j] == 0)
+            if (GET_BIT(level->buckets[level_num][jdx].token, j) == 0)
             {
                 memcpy(level->buckets[level_num][jdx].slot[j].key, m_key, KEY_LEN);
                 memcpy(level->buckets[level_num][jdx].slot[j].value, m_value, VALUE_LEN);
-                level->buckets[level_num][jdx].token[j] = 1;
-
-                pflush((uint64_t *)&level->buckets[level_num][jdx].slot[j].key);
-                pflush((uint64_t *)&level->buckets[level_num][jdx].slot[j].value);
                 asm_mfence();
-                pflush((uint64_t *)&level->buckets[level_num][jdx].token[j]);
+                
+                level_slot_flush(&level->buckets[level_num][jdx], j);
+
                 asm_mfence();
 
-                level->buckets[level_num][idx].token[i] = 0;
-                pflush((uint64_t *)&level->buckets[level_num][idx].token[j]);
+                SET_BIT(level->buckets[level_num][idx].token, i, 0);
+                pflush((uint64_t *)&level->buckets[level_num][idx].token);
                 asm_mfence();
                 // The movement is finished and then the new item is inserted
 
                 memcpy(level->buckets[level_num][idx].slot[i].key, key, KEY_LEN);
                 memcpy(level->buckets[level_num][idx].slot[i].value, value, VALUE_LEN);
-                level->buckets[level_num][idx].token[i] = 1;
-
-                pflush((uint64_t *)&level->buckets[level_num][idx].slot[i].key);
-                pflush((uint64_t *)&level->buckets[level_num][idx].slot[i].value);
                 asm_mfence();
-                pflush((uint64_t *)&level->buckets[level_num][idx].token[i]);
+
+                level_slot_flush(&level->buckets[level_num][idx], i);
+
                 level->level_item_num[level_num] ++;
                 asm_mfence();
                 
@@ -650,40 +696,36 @@ int b2t_movement(level_hash *level, uint64_t idx)
         s_idx = S_IDX(s_hash, level->addr_capacity);
     
         for(j = 0; j < ASSOC_NUM; j ++){
-            if (level->buckets[0][f_idx].token[j] == 0)
+            if (GET_BIT(level->buckets[0][f_idx].token, j) == 0)
             {
                 memcpy(level->buckets[0][f_idx].slot[j].key, key, KEY_LEN);
                 memcpy(level->buckets[0][f_idx].slot[j].value, value, VALUE_LEN);
-                level->buckets[0][f_idx].token[j] = 1;
-
-                pflush((uint64_t *)&level->buckets[0][f_idx].slot[j].key);
-                pflush((uint64_t *)&level->buckets[0][f_idx].slot[j].value);
                 asm_mfence();
-                pflush((uint64_t *)&level->buckets[0][f_idx].token[j]);
+                
+                level_slot_flush(&level->buckets[0][f_idx], j);
+
                 asm_mfence();
 
-                level->buckets[1][idx].token[i] = 0;
-                pflush((uint64_t *)&level->buckets[1][idx].token[i]);
+                SET_BIT(level->buckets[1][idx].token, i, 0);
+                pflush((uint64_t *)&level->buckets[1][idx].token);
                 asm_mfence();
 
                 level->level_item_num[0] ++;
                 level->level_item_num[1] --;
                 return i;
             }
-            if (level->buckets[0][s_idx].token[j] == 0)
+            if (GET_BIT(level->buckets[0][s_idx].token, j) == 0)
             {
                 memcpy(level->buckets[0][s_idx].slot[j].key, key, KEY_LEN);
                 memcpy(level->buckets[0][s_idx].slot[j].value, value, VALUE_LEN);
-                level->buckets[0][s_idx].token[j] = 1;
-
-                pflush((uint64_t *)&level->buckets[0][s_idx].slot[j].key);
-                pflush((uint64_t *)&level->buckets[0][s_idx].slot[j].value);
-                asm_mfence();
-                pflush((uint64_t *)&level->buckets[0][s_idx].token[j]);
                 asm_mfence();
 
-                level->buckets[1][idx].token[i] = 0;
-                pflush((uint64_t *)&level->buckets[1][idx].token[i]);
+                level_slot_flush(&level->buckets[0][s_idx], j);
+
+                asm_mfence();
+
+                SET_BIT(level->buckets[1][idx].token, i, 0);
+                pflush((uint64_t *)&level->buckets[1][idx].token);
                 asm_mfence();
 
                 level->level_item_num[0] ++;

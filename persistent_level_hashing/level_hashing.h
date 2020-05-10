@@ -5,22 +5,28 @@
 #include <time.h>
 #include <ctype.h>
 #include <math.h>
+#include <stdbool.h>
 #include "hash.h"
 #include "log.h"
 
-#define ASSOC_NUM 4                       // The number of slots in a bucket
+#define ASSOC_NUM 4                       // The number of slots in a bucket, should be smaller than 32
 
+// set the n-th bit to 0 or 1
+#define SET_BIT(token, n, bit) (bit ? (token|=(1<<n)) : (token&=~(1<<n)))
+
+// get the n-th bit
+#define GET_BIT(token, n)   (token & (1<<n))
 
 typedef struct entry{                     // A slot storing a key-value item 
     uint8_t key[KEY_LEN];                 // KEY_LEN and VALUE_LEN are defined in log.h
     uint8_t value[VALUE_LEN];
 } entry;
 
-typedef struct level_bucket               // A bucket, put the tokens behind the items to ensure the token area is within the last 8 bytes of the cache line 
+typedef struct level_bucket               // A bucket, put the tokens behind the items to ensure the token area is within the last bytes of the cache line 
 {
     entry slot[ASSOC_NUM];
-    uint8_t token[ASSOC_NUM];             // A token indicates whether its corresponding slot is empty, which can also be implemented using 1 bit
-} level_bucket;
+    uint32_t token;                       // each bit in the last ASSOC_NUM bits is used to indicate whether its corresponding slot is empty
+} level_bucket;                           // 128 byte; one bucket should be cache-line-aligned
 
 typedef struct level_hash {               // A Level hash table
     level_bucket *buckets[2];             // The top level and bottom level in the Level hash table
