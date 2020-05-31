@@ -451,8 +451,7 @@ uint8_t level_update(level_hash *level, uint8_t *key, uint8_t *new_value)
 
                         if(is_in_one_cache_line(&level->buckets[i][f_idx].slot[k], &level->buckets[i][f_idx].token))
                         {
-                            SET_BIT(level->buckets[i][f_idx].token, j, 0);
-                            SET_BIT(level->buckets[i][f_idx].token, k, 1);
+                            level->buckets[i][f_idx].token |= (1<<k) & ~(1<<j);
                             
                             pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].key);
                             pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].value);
@@ -462,8 +461,7 @@ uint8_t level_update(level_hash *level, uint8_t *key, uint8_t *new_value)
                             pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].key);
                             pflush((uint64_t *)&level->buckets[i][f_idx].slot[k].value);
                             asm_mfence();
-                            SET_BIT(level->buckets[i][f_idx].token, j, 0);
-                            SET_BIT(level->buckets[i][f_idx].token, k, 1);
+                            level->buckets[i][f_idx].token |= (1<<k) & ~(1<<j);
                         }
 
                         pflush((uint64_t *)&level->buckets[i][f_idx].token);
@@ -491,8 +489,7 @@ uint8_t level_update(level_hash *level, uint8_t *key, uint8_t *new_value)
                         
                         if(is_in_one_cache_line(&level->buckets[i][s_idx].slot[k], &level->buckets[i][s_idx].token))
                         {
-                            SET_BIT(level->buckets[i][s_idx].token, j, 0);
-                            SET_BIT(level->buckets[i][s_idx].token, k, 1);
+                            level->buckets[i][s_idx].token |= (1<<k) & ~(1<<j);
                             
                             pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].key);
                             pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].value);
@@ -502,8 +499,7 @@ uint8_t level_update(level_hash *level, uint8_t *key, uint8_t *new_value)
                             pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].key);
                             pflush((uint64_t *)&level->buckets[i][s_idx].slot[k].value);
                             asm_mfence();
-                            SET_BIT(level->buckets[i][s_idx].token, j, 0);
-                            SET_BIT(level->buckets[i][s_idx].token, k, 1);
+                            level->buckets[i][s_idx].token |= (1<<k) & ~(1<<j);
                         }
 
                         pflush((uint64_t *)&level->buckets[i][s_idx].token);
