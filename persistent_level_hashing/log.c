@@ -23,6 +23,15 @@ level_log* log_create(uint64_t log_length)
     log->log_length = log_length;
     log->current = 0;
 
+    log->entry_insert = pmalloc(log_length*sizeof(log_entry_insert));
+    if (!log->entry_insert)
+    {
+        printf("Log creation fails: 3");
+        exit(1);
+    }
+
+    log->current_insert= 0;
+    
     return log;
 }
 
@@ -57,5 +66,33 @@ void log_clean(level_log *log)
     if(log->current == log->log_length)
         log->current = 0;
     pflush((uint64_t *)&log->current);
+    asm_mfence();
+}
+
+/*
+Function: log_insert_write() 
+        Write an entry in the insert log;
+*/
+void log_insert_write(level_log * log,log_entry_insert entry)
+{
+    log->entry_insert[log->current_insert] = entry;
+    pflush((uint64_t *)&log->entry_insert[log->current_insert]);
+    asm_mfence();
+}
+
+/*
+Function: log_insert_sclean() 
+        Clean up an entry in the insert log;
+*/
+void log_insert_clean(level_log *log)
+{
+    log->entry_insert[log->current_insert].flag = 0;
+    pflush((uint64_t *)&log->entry_insert[log->current_insert]);
+    asm_mfence();
+
+    log->current_insert++;
+    if(log->current_insert== log->log_length)
+        log->current_insert= 0;
+    pflush((uint64_t *)&log->current_insert);
     asm_mfence();
 }

@@ -617,7 +617,6 @@ uint8_t level_insert(level_hash *level, uint8_t *key, uint8_t *value)
 
     return 1;
 }
-
 /*
 Function: try_movement() 
         Try to move an item from the current bucket to its same-level alternative bucket;
@@ -642,6 +641,13 @@ uint8_t try_movement(level_hash *level, uint64_t idx, uint64_t level_num, uint8_
         for(j = 0; j < ASSOC_NUM; j ++){
             if (GET_BIT(level->buckets[level_num][jdx].token, j) == 0)
             {
+                log_entry_insert entry;
+                entry.level = level_num;
+                entry.bucket = jdx;
+                entry.slot = j;
+                entry.flag = 1;
+                log_insert_write(level->log, entry);
+                
                 memcpy(level->buckets[level_num][jdx].slot[j].key, m_key, KEY_LEN);
                 memcpy(level->buckets[level_num][jdx].slot[j].value, m_value, VALUE_LEN);
                 asm_mfence();
@@ -655,6 +661,7 @@ uint8_t try_movement(level_hash *level, uint64_t idx, uint64_t level_num, uint8_
                 asm_mfence();
                 // The movement is finished and then the new item is inserted
 
+                log_insert_clean(level->log);
                 memcpy(level->buckets[level_num][idx].slot[i].key, key, KEY_LEN);
                 memcpy(level->buckets[level_num][idx].slot[i].value, value, VALUE_LEN);
                 asm_mfence();
@@ -694,6 +701,13 @@ int b2t_movement(level_hash *level, uint64_t idx)
         for(j = 0; j < ASSOC_NUM; j ++){
             if (GET_BIT(level->buckets[0][f_idx].token, j) == 0)
             {
+                log_entry_insert entry;
+                entry.level = 0;
+                entry.bucket = f_idx;
+                entry.slot = j;
+                entry.flag = 1;
+                log_insert_write(level->log, entry);
+
                 memcpy(level->buckets[0][f_idx].slot[j].key, key, KEY_LEN);
                 memcpy(level->buckets[0][f_idx].slot[j].value, value, VALUE_LEN);
                 asm_mfence();
@@ -706,12 +720,20 @@ int b2t_movement(level_hash *level, uint64_t idx)
                 pflush((uint64_t *)&level->buckets[1][idx].token);
                 asm_mfence();
 
+                log_insert_clean(level->log);
                 level->level_item_num[0] ++;
                 level->level_item_num[1] --;
                 return i;
             }
             if (GET_BIT(level->buckets[0][s_idx].token, j) == 0)
             {
+                log_entry_insert entry;
+                entry.level = 0;
+                entry.bucket = s_idx;
+                entry.slot = j;
+                entry.flag = 1;
+                log_insert_write(level->log, entry);
+
                 memcpy(level->buckets[0][s_idx].slot[j].key, key, KEY_LEN);
                 memcpy(level->buckets[0][s_idx].slot[j].value, value, VALUE_LEN);
                 asm_mfence();
@@ -724,6 +746,7 @@ int b2t_movement(level_hash *level, uint64_t idx)
                 pflush((uint64_t *)&level->buckets[1][idx].token);
                 asm_mfence();
 
+                log_insert_clean(level->log);
                 level->level_item_num[0] ++;
                 level->level_item_num[1] --;
                 return i;
